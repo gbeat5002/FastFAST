@@ -1,0 +1,4 @@
+# Build output (rebuild with build.ps1)
+*.dll
+*.pdb
+*.mdb
