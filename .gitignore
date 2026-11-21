@@ -2,3 +2,9 @@
 *.dll
 *.pdb
 *.mdb
+
+# Local backups of saves/settings (never commit)
+backup/
+# Benchmark captures (large)
+bench-results/
+__pycache__/

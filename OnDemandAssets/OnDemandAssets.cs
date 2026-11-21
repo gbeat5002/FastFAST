@@ -295,6 +295,14 @@ namespace OnDemandAssets
 
         void Status(string s) { lastStatus = s; statusUntil = Time.realtimeSinceStartup + 8f; }
 
+        // On-screen notice for other parts of the mod (profilers).
+        public static void Notify(string s)
+        {
+            GameObject host = GameObject.Find(HostName);
+            Controller c = host != null ? host.GetComponent<Controller>() : null;
+            if (c != null) c.Status(s);
+        }
+
         void Update()
         {
             bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
@@ -318,8 +326,12 @@ namespace OnDemandAssets
             if (showPanel) ToolsModifierControl.SetTool<DefaultTool>();   // no placement tool under the panel
         }
 
+        int benchCheckedFrame = -1; bool benchRunning;
         void OnGUI()
         {
+            // Stay out of benchmark screenshots and timings (the Bench mod creates this object while it runs).
+            if (benchCheckedFrame != Time.frameCount) { benchCheckedFrame = Time.frameCount; benchRunning = GameObject.Find("BenchRunning") != null; }
+            if (benchRunning) return;
             if (GUI.Button(new Rect(10, 140, 150, 24), showPanel ? "Close assets" : "Unloaded assets")) Toggle();
             if (Time.realtimeSinceStartup < statusUntil) GUI.Label(new Rect(170, 142, 900, 24), lastStatus);
             if (showPanel) window = GUI.Window(0x4F44, window, DrawWindow, "On-Demand Assets (not loaded at startup)");
