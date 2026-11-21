@@ -1,7 +1,7 @@
 // Profiling: where frame time and load time go, per mod.
 // Frame profiler (Ctrl+Shift+F only, never automatic): times every mod MonoBehaviour per-frame message and every
 // Harmony prefix/postfix other mods installed, plus the game's main loops for context; records 20 s into profile.txt.
-// Load profiler (opt-in): armed only when the file "OnDemandAssets.profile-next-load" exists in the game's data
+// Load profiler (opt-in): armed only when the file "ModProfiler.profile-next-load" exists in the game's data
 // folder; times mod MonoBehaviour/loading-extension hooks during that one load; writes loadprofile.txt.
 // Safety: timers are installed once and never removed during the session (they just stop recording).
 // Times are inclusive (nested timed calls are counted in both). Timer overhead inflates very hot methods.
@@ -18,7 +18,7 @@ using HarmonyLib;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
-namespace OnDemandAssets
+namespace ModProfiler
 {
     static class Timers
     {
@@ -61,25 +61,49 @@ namespace OnDemandAssets
             var pre = new HarmonyMethod(typeof(Timers).GetMethod("Pre"));
             var post = new HarmonyMethod(typeof(Timers).GetMethod("Post"));
             int n = 0;
-            foreach (var kv in targets)
+            // Breadcrumb: each label is flushed to disk before its patch, so after a crash the last line names the culprit.
+            // Some patch methods crash Mono's JIT natively (not catchable); a crashed run's last label is skipped next time.
+            string crumbs = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "profile-patching.txt");
+            string skipFile = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "profile-skip.txt");
+            if (File.Exists(crumbs))
             {
-                try { h.Patch(kv.Key, pre, post, null, null); n++; }
-                catch (Exception e) { Debug.Log("[OnDemandAssets] Could not time " + kv.Value + ": " + e.Message); }
+                string[] old = File.ReadAllLines(crumbs);
+                string last = old.Length > 0 ? old[old.Length - 1] : "";
+                if (last.Length > 0 && !last.StartsWith("==") && !last.StartsWith("skip") && !last.StartsWith("  failed"))
+                    File.AppendAllText(skipFile, last + Environment.NewLine);
+            }
+            var skipped = new HashSet<string>(File.Exists(skipFile) ? File.ReadAllLines(skipFile) : new string[0]);
+            using (var log = new StreamWriter(crumbs, true) { AutoFlush = true })
+            {
+                log.WriteLine("== " + DateTime.Now + ": patching " + targets.Count);
+                foreach (var kv in targets)
+                {
+                    if (skipped.Contains(kv.Value)) { log.WriteLine("skip (crashed before) " + kv.Value); continue; }
+                    // Never touch a method another mod transpiles: re-patching makes Harmony re-run their transpilers.
+                    Patches info = Harmony.GetPatchInfo(kv.Key);
+                    if (info != null && info.Transpilers.Count > 0) { log.WriteLine("skip (transpiled) " + kv.Value); continue; }
+                    log.WriteLine(kv.Value);
+                    try { h.Patch(kv.Key, pre, post, null, null); n++; }
+                    catch (Exception e) { log.WriteLine("  failed: " + e.Message); }
+                }
+                log.WriteLine("== done, " + n + " wrapped");
             }
             return n;
         }
 
+        static readonly string[] skip = { "Assembly-CSharp", "Assembly-CSharp-firstpass", "ColossalManaged", "ICities", "UnityEngine", "UnityEngine.UI",
+            "UnityEngine.Networking", "mscorlib", "ICSharpCode.SharpZipLib", "PopsApiWrapper", "EOSSDK", "OnDemandAssets", "ModProfiler",
+            "CitiesHarmony.Harmony", "CitiesHarmony.API", "CitiesHarmony", "0Harmony" };
+
+        public static bool IsMod(string n)
+        {
+            return !(skip.Contains(n) || n.StartsWith("System") || n.StartsWith("Mono") || n.StartsWith("Anonymously") || n.StartsWith("0Harmony"));
+        }
+
         public static IEnumerable<Assembly> ModAssemblies()
         {
-            string[] skip = { "Assembly-CSharp", "Assembly-CSharp-firstpass", "ColossalManaged", "ICities", "UnityEngine", "UnityEngine.UI",
-                "UnityEngine.Networking", "mscorlib", "ICSharpCode.SharpZipLib", "PopsApiWrapper", "EOSSDK", "OnDemandAssets",
-                "CitiesHarmony.Harmony", "CitiesHarmony.API", "0Harmony" };
             foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                string n = a.GetName().Name;
-                if (skip.Contains(n) || n.StartsWith("System") || n.StartsWith("Mono") || n.StartsWith("Anonymously")) continue;
-                yield return a;
-            }
+                if (IsMod(a.GetName().Name)) yield return a;
         }
 
         public static IEnumerable<Type> Types(Assembly a)
@@ -108,27 +132,55 @@ namespace OnDemandAssets
         bool running;
         readonly List<float> frames = new List<float>();
 
-        static int wrapped;   // timers are installed once per game session and never removed
+        // Timers are installed once per game session and never removed. Pass 1: main-thread per-frame mod hooks and
+        // game anchors. Pass 2 (opt-in, after pass 1 survived): other mods' Harmony patch methods, which may run on
+        // the simulation thread, so they are installed with the simulation paused.
+        static int wrapped, wrapped2;
 
         void Update()
         {
             if (running) frames.Add(Time.unscaledDeltaTime);
             bool combo = (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) && (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift));
-            if (combo && Input.GetKeyDown(KeyCode.F) && !running) StartCoroutine(Capture());
+            if (combo && Input.GetKeyDown(KeyCode.F) && !running) StartCoroutine(Capture(false));
+            // Or drop "profile.flag" / "profile2.flag" in the data folder: starts a capture without keyboard focus.
+            if (!running && Time.frameCount % 60 == 0)
+            {
+                if (TakeFlag("profile.flag")) StartCoroutine(Capture(false));
+                else if (TakeFlag("profile2.flag")) StartCoroutine(Capture(true));
+            }
         }
 
-        IEnumerator Capture()
+        static bool TakeFlag(string name)
+        {
+            string f = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, name);
+            if (!File.Exists(f)) return false;
+            try { File.Delete(f); } catch { }
+            return true;
+        }
+
+        IEnumerator Capture(bool withPatches)
         {
             running = true;
             Timers.mainThread = Thread.CurrentThread.ManagedThreadId;
             if (wrapped == 0)
             {
-                Controller.Notify("Installing frame timers (one-time hitch)...");
+                ProfilerMod.Notify("Installing frame timers, pass 1 (one-time hitch)...");
                 yield return null;
                 wrapped = Timers.Wrap(new Harmony(Id), Targets());
                 yield return new WaitForSeconds(2f);   // let the patching hitch pass before measuring
             }
-            Controller.Notify("Profiling frame time for " + CaptureSeconds + " s...");
+            if (withPatches && wrapped2 == 0)
+            {
+                ProfilerMod.Notify("Installing timers on other mods' patches, pass 2 (simulation paused)...");
+                SimulationManager sim = SimulationManager.instance;
+                bool wasPaused = sim.SimulationPaused;
+                sim.SimulationPaused = true;
+                yield return new WaitForSeconds(1f);   // let the simulation thread leave its current step
+                wrapped2 = Timers.Wrap(new Harmony(Id + ".patches"), PatchTargets());
+                sim.SimulationPaused = wasPaused;
+                yield return new WaitForSeconds(3f);
+            }
+            ProfilerMod.Notify("Profiling frame time for " + CaptureSeconds + " s...");
             Timers.Reset(); frames.Clear();
             Timers.recording = true;
             float until = Time.realtimeSinceStartup + CaptureSeconds;
@@ -137,7 +189,7 @@ namespace OnDemandAssets
             var stats = Timers.stats;
             var frameTimes = new List<float>(frames);
             running = false;
-            Write(stats, frameTimes, wrapped);
+            Write(stats, frameTimes, wrapped + wrapped2, withPatches ? "profile-pass2.txt" : "profile-pass1.txt");
         }
 
         static Dictionary<MethodBase, string> Targets()
@@ -157,28 +209,54 @@ namespace OnDemandAssets
                     }
                 }
 
+            // ICities per-frame hook: called on the main thread by the game's threading wrapper.
+            foreach (Assembly a in Timers.ModAssemblies())
+                foreach (Type type in Timers.Types(a))
+                {
+                    if (!typeof(ICities.IThreadingExtension).IsAssignableFrom(type)) continue;
+                    MethodInfo m = null;
+                    try { m = type.GetMethod("OnUpdate", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly); } catch { }
+                    if (Timers.Timeable(m)) t[m] = Timers.Owner(m) + ": " + Timers.Name(m);
+                }
+
+            // The game's own per-frame work, split by system. FPS Booster renames each manager's Update/LateUpdate to
+            // FpsBooster*; EndRenderingImpl is where each manager submits its draws. All main-thread only.
+            // Transpiled ones are skipped by Wrap.
+            const BindingFlags any = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly;
+            foreach (Type type in Timers.Types(typeof(RenderManager).Assembly).Concat(Timers.Types(typeof(ColossalFramework.UI.UIView).Assembly)))
+            {
+                if (type.IsValueType || type.ContainsGenericParameters) continue;
+                MethodInfo[] ms;
+                try { ms = type.GetMethods(any); } catch { continue; }
+                foreach (MethodInfo m in ms)
+                    if ((m.Name.StartsWith("FpsBooster") || m.Name == "EndRenderingImpl" || m.Name == "BeginRenderingImpl")
+                        && m.GetParameters().Length <= 1 && Timers.Timeable(m) && !t.ContainsKey(m))
+                        t[m] = "[game] " + Timers.Name(m);
+            }
+            return t;
+        }
+
+        // Pass 2: prefixes/postfixes/finalizers other mods installed (not the originals they patch).
+        static Dictionary<MethodBase, string> PatchTargets()
+        {
+            var t = new Dictionary<MethodBase, string>();
             foreach (MethodBase original in Harmony.GetAllPatchedMethods().ToList())
             {
                 Patches info = Harmony.GetPatchInfo(original);
                 if (info == null) continue;
+                // Patches on struct members (TreeInstance, PropInstance, ...) crashed Mono's JIT natively when re-detoured.
+                if (original.DeclaringType != null && original.DeclaringType.IsValueType) continue;
                 foreach (Patch p in info.Prefixes.Concat(info.Postfixes).Concat(info.Finalizers))
                 {
                     MethodInfo pm = p.PatchMethod;
-                    if (!Timers.Timeable(pm) || Timers.Owner(pm) == "OnDemandAssets") continue;
+                    if (!Timers.Timeable(pm) || !Timers.IsMod(Timers.Owner(pm))) continue;
                     t[pm] = Timers.Owner(pm) + ": patch " + Timers.Name(pm) + " on " + Timers.Name(original);
                 }
-                // Transpiled originals are not timed: re-patching them makes Harmony re-run other mods' transpilers.
             }
-
-            // Game loops for context (inclusive of everything patched inside them).
-            foreach (var g in new[] { typeof(RenderManager).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public),
-                                      typeof(SimulationManager).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public),
-                                      typeof(ToolController).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public) })
-                if (g != null && !t.ContainsKey(g)) t[g] = "[game total] " + Timers.Name(g);
             return t;
         }
 
-        static void Write(Dictionary<string, Timers.Stat> stats, List<float> frameTimes, int wrapped)
+        static void Write(Dictionary<string, Timers.Stat> stats, List<float> frameTimes, int wrapped, string file)
         {
             int n = Math.Max(frameTimes.Count, 1);
             double freq = Stopwatch.Frequency;
@@ -198,10 +276,10 @@ namespace OnDemandAssets
             foreach (var g in stats.Where(kv => !kv.Key.Contains("[other thread]") && !kv.Key.StartsWith("[game") && !kv.Key.StartsWith("TRANSPILED"))
                                    .GroupBy(kv => kv.Key.Substring(0, kv.Key.IndexOf(':'))).OrderByDescending(g => g.Sum(kv => kv.Value.ticks)).Take(30))
                 sb.AppendLine(string.Format("{0,9:N2} ms/frame  {1}", g.Sum(kv => kv.Value.ticks) / freq * 1000 / n, g.Key));
-            string path = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "profile.txt");
+            string path = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, file);
             File.WriteAllText(path, sb.ToString());
-            Debug.Log("[OnDemandAssets] Frame profile written: " + path);
-            Controller.Notify(string.Format("Frame profile saved: {0:N0} FPS average (see profile.txt)", avgMs > 0 ? 1000 / avgMs : 0));
+            Debug.Log("[ModProfiler] Frame profile written: " + path);
+            ProfilerMod.Notify(string.Format("Frame profile saved: {0:N0} FPS average (see profile.txt)", avgMs > 0 ? 1000 / avgMs : 0));
         }
     }
 
@@ -215,7 +293,7 @@ namespace OnDemandAssets
         static readonly string[] LoadingHooks = { "OnCreated", "OnLevelLoaded" };
         static readonly string[] DataHooks = { "OnLoadData" };
 
-        static string FlagFile { get { return Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "OnDemandAssets.profile-next-load"); } }
+        static string FlagFile { get { return Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "ModProfiler.profile-next-load"); } }
 
         // Called once Harmony is ready. Opt-in only: does nothing unless the flag file exists.
         public static void Install()
@@ -253,7 +331,7 @@ namespace OnDemandAssets
                 }
             int n = Timers.Wrap(harmony, t);
             Timers.recording = true;
-            Debug.Log("[OnDemandAssets] Load profiler armed: timing " + n + " mod load hooks");
+            Debug.Log("[ModProfiler] Load profiler armed: timing " + n + " mod load hooks");
         }
 
         // Called from our own OnLevelLoaded; waits so late Start() calls are included.
@@ -277,7 +355,7 @@ namespace OnDemandAssets
                 sb.AppendLine(string.Format("{0,8:N0} ms  {1}", g.Sum(kv => kv.Value.ticks) / freq * 1000, g.Key));
             string path = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "loadprofile.txt");
             File.WriteAllText(path, sb.ToString());
-            Debug.Log("[OnDemandAssets] Load profile written: " + path);
+            Debug.Log("[ModProfiler] Load profile written: " + path);
         }
     }
 }

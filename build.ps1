@@ -4,23 +4,29 @@
 param([switch]$NoInstall, [string[]]$Only)
 $game = "C:\Program Files (x86)\Steam\steamapps\common\Cities_Skylines\Cities_Data\Managed"
 $mods = "$env:LOCALAPPDATA\Colossal Order\Cities_Skylines\Addons\Mods"
+$harmony = "C:\Program Files (x86)\Steam\steamapps\workshop\content\255710\2040656402"   # CitiesHarmony (Workshop)
 $base = "Assembly-CSharp", "ColossalManaged", "ICities", "UnityEngine" | ForEach-Object { "/r:$game\$_.dll" }
 
 # Each mod: explicit source files (nothing gets swept in by accident) and its install folder.
 $build = @(
     @{ name = "OnDemandAssets"; files = "OnDemandAssets.cs", "TextureTrim.cs"; installTo = "OnDemandTest" },   # folder name kept: it is the entry already enabled in Content Manager
-    @{ name = "Bench"; files = "Bench.cs"; installTo = "Bench" }
+    @{ name = "Bench"; files = "Bench.cs"; installTo = "Bench" },
+    @{ name = "Profiler"; files = "Profiling.cs", "ProfilerMod.cs"; installTo = "ModProfiler"; dll = "ModProfiler"
+       refs = "$PSScriptRoot\lib\CitiesHarmony.API.dll", "$harmony\CitiesHarmony.Harmony.dll", "System.Core.dll"; copy = "$PSScriptRoot\lib\CitiesHarmony.API.dll" }
 )
 
 foreach ($m in $build) {
     if ($Only -and $Only -notcontains $m.name) { continue }
     $src = @($m.files | ForEach-Object { Join-Path "$PSScriptRoot\$($m.name)" $_ })
-    $out = "$PSScriptRoot\$($m.name)\$($m.name).dll"
-    & C:\Windows\Microsoft.NET\Framework64\v3.5\csc.exe /nologo /target:library /optimize /out:$out @base @src
+    $dll = if ($m.dll) { $m.dll } else { $m.name }
+    $out = "$PSScriptRoot\$($m.name)\$dll.dll"
+    $refs = @($m.refs | Where-Object { $_ } | ForEach-Object { "/r:$_" })
+    & C:\Windows\Microsoft.NET\Framework64\v3.5\csc.exe /nologo /target:library /optimize /out:$out @base @refs @src
     if ($LASTEXITCODE -ne 0) { Write-Error "Build failed: $($m.name)"; exit 1 }
     if ($NoInstall) { "Built: $out"; continue }
     $dst = Join-Path $mods $m.installTo
     New-Item -ItemType Directory -Force $dst | Out-Null
     Copy-Item $out $dst -Force
+    foreach ($c in @($m.copy | Where-Object { $_ })) { Copy-Item $c $dst -Force }
     "Built and installed: $($m.name) -> $dst"
 }
