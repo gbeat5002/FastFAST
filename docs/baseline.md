@@ -26,3 +26,10 @@ New game on a stock map, empty city, 2560x1440, all current mods. 60 s per segme
 - **All 5 positions were the same point** (0, 60, 0), differing only in angle and zoom, because the empty city had no buildings, nodes or props to pick from.
 - Fixes in the Bench mod (not yet installed, the game was running): the clock is set to 12:00 before every screenshot and segment, and empty-city positions fall back to three separate map points with a steeper street-level pitch. Run 2 re-picks positions and replaces this table as the baseline.
 - A mod's IMGUI "Area Fill" button stays visible with the UI hidden. It is identical in every shot, so it doesn't affect SSIM.
+
+## Run 2: 20261121_155738 (invalid scene)
+Same setup, fixed bench (clock pinned to 12:00, positions spread). Results match run 1: every segment main-thread bound (98-100%), GPU 46-61%, average 52-60 FPS, 1% lows 40-50 in clean segments. Two segments voided for focus loss; dense_assets paused had a 0.1% low of 4.9 FPS.
+
+**The screenshots are still unusable, and the reason is the scene itself: the map never loads.** Terrain samples are exactly 60 m at every position, there is no water, and the frame is uniform black at night and uniform white at noon. The likely cause is More Network Capacity (Renew), Workshop 3818403598, installed 2026-11-21 01:45. It hooks the game's deserialization stream and logs "Suppressed BeginDeserialize('TerrainManager') tag mismatch (read 'TerrainManager')", and the same for WaterSimulation, while the map loads. Not yet confirmed by disabling it.
+
+Until a map loads correctly, neither run is a valid baseline: an empty flat plane draws far less than a real map.
