@@ -23,4 +23,5 @@ Result (verified in game, new Green Peaks city):
 - Map load time went from 4:26 to 1:15. The game log shrank from 300k to 146k lines.
 - No error popups. One remaining mod exception: Japanese Traffic Lights (810355214) can't find its own light props on a fresh map, because LSM "load used assets only" skips them. It is kept, since cities that use those lights load the props.
 - Follow-up (user request after seeing its error popup): Japanese Traffic Lights (810355214) also excluded. Cities that use its traffic lights will show default lights or missing props until it is re-enabled.
+- Kept by user choice: BOB (2197863850). Its "unable to load random template assets" popup on fresh maps is a warning only: LSM "load used assets" skips BOB's bundled template .crp files when a city doesn't use them. Cities that use BOB random trees/props load them.
 - FPS is not comparable to runs 1-2, which rendered an empty plane. Run 3 is the new baseline (baseline.md).
