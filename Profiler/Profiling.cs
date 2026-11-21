@@ -359,3 +359,144 @@ namespace ModProfiler
         }
     }
 }
+
+namespace ModProfiler
+{
+    using System;
+    using System.Collections;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.IO;
+    using System.Linq;
+    using System.Text;
+    using System.Threading;
+    using ColossalFramework.UI;
+    using HarmonyLib;
+    using UnityEngine;
+    using Debug = UnityEngine.Debug;
+
+    // Which UI components force a UI rebuild. Any UIComponent.Invalidate() marks the whole UIView dirty, and a dirty
+    // view re-renders every visible component. Counts Invalidate calls per component (with the calling method) and
+    // how many frames the view actually re-rendered and how long that took. Trigger: "uiprofile.flag", 10 s.
+    public class UiProfiler : MonoBehaviour
+    {
+        const float Seconds = 10f;
+        class Hit { public int calls, dirtied; public string caller; public bool otherThread; }
+        static readonly object gate = new object();
+        static Dictionary<UIComponent, Hit> hits = new Dictionary<UIComponent, Hit>();
+        static volatile bool recording;
+        static int mainThread, renders;
+        static long renderTicks, renderStart;
+        static bool installed;
+
+        static readonly System.Reflection.FieldInfo dirtyField = typeof(UIView).GetField("m_IsDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        static bool ViewDirty(UIComponent c)
+        {
+            UIView v = c != null ? c.GetUIView() : null;
+            return v != null && dirtyField != null && (bool)dirtyField.GetValue(v);
+        }
+
+        // Postfix: this call is the one that made the view re-render if the view was clean before and dirty after.
+        static void InvalidatePostfix(UIComponent __instance, bool __state)
+        {
+            if (!recording || __state || !ViewDirty(__instance)) return;
+            lock (gate) { Hit h; if (hits.TryGetValue(__instance, out h)) h.dirtied++; }
+        }
+
+        static void InvalidatePrefix(UIComponent __instance, out bool __state)
+        {
+            __state = true;
+            if (!recording) return;
+            __state = ViewDirty(__instance);
+            lock (gate)
+            {
+                Hit h;
+                if (!hits.TryGetValue(__instance, out h))
+                {
+                    hits[__instance] = h = new Hit();
+                    // Calling method, skipping the Harmony wrapper and Invalidate overloads/property setters on UI types.
+                    foreach (StackFrame f in new StackTrace(1, false).GetFrames() ?? new StackFrame[0])
+                    {
+                        var m = f.GetMethod();
+                        if (m == null || m.DeclaringType == null) continue;
+                        string ns = m.DeclaringType.Namespace ?? "";
+                        if (m.Name.Contains("Invalidate") || m.DeclaringType.Name.StartsWith("DMD") || ns.StartsWith("HarmonyLib")) continue;
+                        h.caller = m.DeclaringType.Assembly.GetName().Name + ": " + m.DeclaringType.FullName + "." + m.Name;
+                        if (!ns.StartsWith("ColossalFramework.UI")) break;   // first non-UI-framework frame is the culprit
+                    }
+                }
+                h.calls++;
+                if (Thread.CurrentThread.ManagedThreadId != mainThread) h.otherThread = true;
+            }
+        }
+        static void RenderPrefix() { renderStart = Stopwatch.GetTimestamp(); }
+        static void RenderPostfix() { if (recording) { renders++; renderTicks += Stopwatch.GetTimestamp() - renderStart; } }
+
+        void Update()
+        {
+            if (Time.frameCount % 60 != 0) return;
+            string flag = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "uiprofile.flag");
+            if (!File.Exists(flag)) return;
+            try { File.Delete(flag); } catch { }
+            StartCoroutine(Capture());
+        }
+
+        IEnumerator Capture()
+        {
+            mainThread = Thread.CurrentThread.ManagedThreadId;
+            if (!installed)
+            {
+                installed = true;
+                var h = new Harmony("modprofiler.ui");
+                var inv = typeof(UIComponent).GetMethod("Invalidate", Type.EmptyTypes);
+                var render = typeof(UIView).GetMethod("Render", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+                h.Patch(inv, new HarmonyMethod(typeof(UiProfiler).GetMethod("InvalidatePrefix", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)),
+                    new HarmonyMethod(typeof(UiProfiler).GetMethod("InvalidatePostfix", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)), null, null);
+                h.Patch(render, new HarmonyMethod(typeof(UiProfiler).GetMethod("RenderPrefix", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)),
+                    new HarmonyMethod(typeof(UiProfiler).GetMethod("RenderPostfix", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)), null, null);
+                yield return new WaitForSeconds(2f);
+            }
+            lock (gate) hits = new Dictionary<UIComponent, Hit>();
+            renders = 0; renderTicks = 0;
+            int f0 = Time.frameCount;
+            recording = true;
+            float until = Time.realtimeSinceStartup + Seconds;
+            while (Time.realtimeSinceStartup < until) yield return null;
+            recording = false;
+            int frames = Math.Max(1, Time.frameCount - f0);
+
+            var sb = new StringBuilder();
+            int total = UIView.GetAView() != null ? UIView.GetAView().GetComponentsInChildren<UIComponent>(true).Length : 0;
+            sb.AppendLine("UI profile " + DateTime.Now + ": " + frames + " frames, " + total + " UI components");
+            sb.AppendLine(string.Format("UIView re-rendered on {0} of {1} frames ({2:P0}); {3:N2} ms per re-render, {4:N2} ms per frame average",
+                renders, frames, (double)renders / frames, renders > 0 ? renderTicks * 1000.0 / Stopwatch.Frequency / renders : 0, renderTicks * 1000.0 / Stopwatch.Frequency / frames));
+            sb.AppendLine();
+            sb.AppendLine("Invalidate() calls per frame by component; 'dirtied' = frames on which this call switched the UI to re-render");
+            sb.AppendLine("calls/frame  dirtied  component path | type | visible | first calling method");
+            Dictionary<UIComponent, Hit> snap;
+            lock (gate) snap = new Dictionary<UIComponent, Hit>(hits);
+            foreach (var kv in snap.OrderByDescending(kv => kv.Value.dirtied).ThenByDescending(kv => kv.Value.calls).Take(40))
+                sb.AppendLine(string.Format("{0,8:N2}  {6,7}  {1} | {2} | {3} | {4}{5}", (double)kv.Value.calls / frames, PathOf(kv.Key), kv.Key == null ? "?" : kv.Key.GetType().FullName,
+                    kv.Key != null && kv.Key.isVisible, kv.Value.caller, kv.Value.otherThread ? "  [OFF MAIN THREAD]" : "", kv.Value.dirtied));
+            sb.AppendLine();
+            sb.AppendLine(string.Format("Re-renders started by a component Invalidate(): {0} of {1} (the rest come from elsewhere, e.g. UIView.Invalidate or layout)",
+                snap.Sum(kv => kv.Value.dirtied), renders));
+            sb.AppendLine();
+            sb.AppendLine("By calling assembly (calls per frame):");
+            foreach (var g in snap.GroupBy(kv => (kv.Value.caller ?? "?").Split(':')[0]).OrderByDescending(g => g.Sum(kv => kv.Value.calls)))
+                sb.AppendLine(string.Format("{0,8:N2}  {1}  ({2} components)", (double)g.Sum(kv => kv.Value.calls) / frames, g.Key, g.Count()));
+            string path = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "ui-profile.txt");
+            File.WriteAllText(path, sb.ToString());
+            Debug.Log("[ModProfiler] UI profile written: " + path);
+        }
+
+        static string PathOf(UIComponent c)
+        {
+            if (c == null) return "(destroyed)";
+            var parts = new List<string>();
+            for (Transform t = c.transform; t != null && parts.Count < 6; t = t.parent) parts.Add(t.name);
+            parts.Reverse();
+            return string.Join("/", parts.ToArray());
+        }
+    }
+}

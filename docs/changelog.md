@@ -22,4 +22,5 @@ Result (verified in game, new Green Peaks city):
 - The map loads correctly: terrain, river, forests and highway are back. In runs 1-2 it was a flat plane at 60 m with no water.
 - Map load time went from 4:26 to 1:15. The game log shrank from 300k to 146k lines.
 - No error popups. One remaining mod exception: Japanese Traffic Lights (810355214) can't find its own light props on a fresh map, because LSM "load used assets only" skips them. It is kept, since cities that use those lights load the props.
+- Follow-up (user request after seeing its error popup): Japanese Traffic Lights (810355214) also excluded. Cities that use its traffic lights will show default lights or missing props until it is re-enabled.
 - FPS is not comparable to runs 1-2, which rendered an empty plane. Run 3 is the new baseline (baseline.md).

@@ -23,6 +23,7 @@ namespace ModProfiler
             if (!HarmonyHelper.IsHarmonyInstalled || GameObject.Find(HostName) != null) return;
             var host = new GameObject(HostName);
             var fp = host.AddComponent<FrameProfiler>();
+            host.AddComponent<UiProfiler>();
             fp.StartCoroutine(LoadProfiler.Finish());
         }
 
