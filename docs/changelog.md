@@ -18,4 +18,8 @@ Excluded in Skyve (`Skyve\ModConfig.xml`, `Excluded=true`; previous file in `bac
 
 Assets: the LSM report for the main city (fdnhbdf) has no failed assets and one asset error (Torre De Las Americas, invalid LOD texture size 216x512, which renders fine). So no assets were disabled. The 54 missing assets are unsubscribed items the city uses, which is a subscription question, not a bad-asset one.
 
-Status: not yet verified in game (the PC was locked when the game was launched).
+Result (verified in game, new Green Peaks city):
+- The map loads correctly: terrain, river, forests and highway are back. In runs 1-2 it was a flat plane at 60 m with no water.
+- Map load time went from 4:26 to 1:15. The game log shrank from 300k to 146k lines.
+- No error popups. One remaining mod exception: Japanese Traffic Lights (810355214) can't find its own light props on a fresh map, because LSM "load used assets only" skips them. It is kept, since cities that use those lights load the props.
+- FPS is not comparable to runs 1-2, which rendered an empty plane. Run 3 is the new baseline (baseline.md).
