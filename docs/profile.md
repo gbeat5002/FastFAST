@@ -25,3 +25,12 @@ At 22.5-23 ms per frame (43-44 FPS while profiling; the benchmark measures 46-63
 - Profiled at the default start view, not the 5 bench positions.
 - Profiler pass 2 crashed twice: patching other mods' prefixes on struct members (TreeControl's `TreeInstance.set_GrowState`, PropControl's `PropInstance.get_Position`) crashes Mono's JIT natively. Patches on value types are now skipped (see rejected.md).
 - Don't run Bench in a session where profiler timers are installed: they stay on and add overhead.
+
+## UI redraw attribution (2026-11-21 18:20, fresh Green Peaks city)
+Tool: Mod Profiler's UI capture (`uiprofile.flag`, 10 s). It patches `UIComponent.Invalidate` and `UIView.Render`, and records which call switched the UI view from clean to dirty.
+
+- The UI re-rendered on **535 of 535 frames**, at 1.80 ms per re-render. 28,607 UI components exist.
+- **531 of those 535 re-renders were started by one button: Crossroads' toolbar toggle** (`CrossroadsToggleButton`). `Crossroads.Tool.ToggleButtonStyle.Apply` re-applies its style 5 times per frame, invalidating the button each time.
+- The game's own per-frame invalidations (hotel-chain profit label, hidden industry and monument menu items) never dirtied the view: they're hidden, so they don't trigger a redraw.
+- The other 4 re-renders came from real changes (WatchIt2 panel icons, a Chirper message).
+- Expected saving if the button stops invalidating: at least the 1.8 ms re-render on most frames. UIView.LateUpdate measured ~9 ms in the frame profile, so part of the rest may also drop. Not yet measured.
