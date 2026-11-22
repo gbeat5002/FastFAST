@@ -21,6 +21,12 @@ namespace OnDemandAssets
         public string Name { get { return "On-Demand Assets"; } }
         public string Description { get { return "Ctrl+Shift+L: browse and load unloaded props/buildings while playing."; } }
 
+        public void OnSettingsUI(UIHelperBase helper)
+        {
+            helper.AddGroup("RAM").AddCheckbox("Free RAM copies of tooltip and thumbnail images (takes effect next city load)",
+                TextureTrim.TrimUiAtlases, on => TextureTrim.TrimUiAtlases = on);
+        }
+
         // Enabled while a city is open (or hot-reloaded): attach without needing a reload.
         public void OnEnabled()
         {

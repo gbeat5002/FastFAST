@@ -31,3 +31,11 @@ Result (verified in game, new Green Peaks city):
 - Hotel guard: skips the game's `HotelChainPanel` per-frame update while the panel is hidden. It was the next re-render source once the Crossroads guard was on (566 of 590 frames). Installed; the re-render capture with it on has not been run yet.
 - Both default on, each with an options checkbox (`UiRedrawGuard.txt`). Nothing visible changes: the skipped calls re-applied identical state or refreshed a hidden panel.
 - FPS gain: **not measured yet.** Run 4 (both on, before the weather fix) is not comparable: random overcast weather darkened the frame. A guards-off run was stopped when the game closed. Bench now pins clear weather. Next measurement: a quick same-spot A/B (20 s off, 20 s on), not the full benchmark.
+
+## 2026-11-21: Phase 2, change 2: free RAM copies of tooltip and thumbnail atlases (On-Demand Assets `TextureTrim`)
+- What: after a city loads, `Texture2D.Apply(false, true)` (drop the CPU copy, keep the GPU copy) on the DLC hover-tooltip atlases and the build-menu thumbnail atlases. Other UI atlases stay readable, since mods copy sprites out of them. Option: On-Demand Assets settings → "Free RAM copies of tooltip and thumbnail images", or `trim-ui-atlases=off` in `OnDemandAssets.txt`.
+- Found by: memory snapshot. 3.4 GB of texture RAM copies in a fresh city; 714 MB in thumbnail atlases and ~650 MB in tooltip atlases.
+- Result (fresh Green Peaks city, short test): freed 68 atlases, **~1.2 GB**. Working set one minute after load: 7.9 GB, against 9.1 GB in the earlier session without it. That's a cross-session comparison, not an A/B in one session.
+- Checks: no exceptions in the log after the trim or after opening the Roads menu. Build-menu thumbnails display normally. Visuals unchanged by design (the GPU copy is what's drawn).
+- Not done: the other ~2 GB of RAM copies (Procedural Objects' sidewalk texture pack ~0.6 GB, ~24,000 small unattributed images). They're riskier, because their owners may read pixels later.
+- Also: excluded the second Japanese Traffic Lights mod (809633246), which showed the same error popup as 810355214. The log now has zero mod exceptions on a fresh city.

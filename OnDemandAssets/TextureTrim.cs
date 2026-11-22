@@ -73,6 +73,42 @@ namespace OnDemandAssets
             }
             Debug.Log(string.Format("[OnDemandAssets] TextureTrim: freed RAM copy of {0} textures (~{1:N0} MB), skipped {2}, {3} ms",
                 trimmed, mb, skipped, sw.ElapsedMilliseconds));
+            if (TrimUiAtlases) yield return StartCoroutine(TrimAtlases());
+        }
+
+        // UI atlases the UI only draws from the GPU: the DLC hover-tooltip images (11 of them are 64 MB each) and the
+        // build-menu thumbnail atlases. Memory snapshot: ~1.4 GB of RAM copies in a fresh city. Other UI atlases are left
+        // readable because mods copy sprites out of them (e.g. the "Ingame" icon atlas). Setting file: OnDemandAssets.txt.
+        public static bool TrimUiAtlases = SettingOn("trim-ui-atlases");
+
+        static bool SettingOn(string key)
+        {
+            try
+            {
+                string f = System.IO.Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "OnDemandAssets.txt");
+                return !System.IO.File.Exists(f) || !System.IO.File.ReadAllText(f).Contains(key + "=off");
+            }
+            catch { return true; }
+        }
+
+        IEnumerator TrimAtlases()
+        {
+            var thumbAtlases = new HashSet<ColossalFramework.UI.UITextureAtlas>();
+            foreach (PrefabInfo pi in Resources.FindObjectsOfTypeAll<PrefabInfo>()) if (pi != null && pi.m_Atlas != null) thumbAtlases.Add(pi.m_Atlas);
+            int n = 0; double mb = 0;
+            var sw = Stopwatch.StartNew();
+            foreach (var a in Resources.FindObjectsOfTypeAll<ColossalFramework.UI.UITextureAtlas>())
+            {
+                if (a == null || a.material == null) continue;
+                bool tooltip = a.name.IndexOf("Tooltip", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!tooltip && !thumbAtlases.Contains(a)) continue;
+                var t = a.material.mainTexture as Texture2D;
+                if (t == null || !done.Add(t.GetInstanceID())) continue;
+                try { t.GetPixel(0, 0); } catch { continue; }   // already not readable
+                try { t.Apply(false, true); n++; mb += (double)t.width * t.height * Bpp(t.format) / 1048576.0; } catch { }
+                if (n % 20 == 0) yield return null;
+            }
+            Debug.Log(string.Format("[OnDemandAssets] TextureTrim: freed RAM copy of {0} tooltip/thumbnail atlases (~{1:N0} MB), {2} ms", n, mb, sw.ElapsedMilliseconds));
         }
 
         static void Mark(Material m, HashSet<int> ids)

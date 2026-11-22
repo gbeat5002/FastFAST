@@ -68,6 +68,42 @@ namespace ModProfiler
             sb.AppendLine();
             yield return null;
 
+            // 2b. Who owns the readable textures (the ones with an extra RAM copy). Owner = first match of:
+            // a prefab's thumbnail atlas, any other UI atlas, a UI texture sprite, or a material (grouped by shader).
+            var owner = new Dictionary<Texture, string>();
+            var prefabAtlases = new HashSet<ColossalFramework.UI.UITextureAtlas>();
+            foreach (PrefabInfo pi in Resources.FindObjectsOfTypeAll<PrefabInfo>()) if (pi != null && pi.m_Atlas != null) prefabAtlases.Add(pi.m_Atlas);
+            foreach (var a in Resources.FindObjectsOfTypeAll<ColossalFramework.UI.UITextureAtlas>())
+            {
+                Texture t = a != null && a.material != null ? a.material.mainTexture : null;
+                if (t != null && !owner.ContainsKey(t)) owner[t] = prefabAtlases.Contains(a) ? "asset thumbnail atlas" : "UI atlas '" + a.name + "'";
+            }
+            foreach (var s in Resources.FindObjectsOfTypeAll<ColossalFramework.UI.UITextureSprite>())
+                if (s != null && s.texture != null && !owner.ContainsKey(s.texture)) owner[s.texture] = "UI texture sprite";
+            foreach (Material m in Resources.FindObjectsOfTypeAll<Material>())
+            {
+                if (m == null) continue;
+                string shader = m.shader != null ? m.shader.name : "?";
+                foreach (string prop in new[] { "_MainTex", "_XYSMap", "_ACIMap", "_APRMap", "_XYCAMap", "_BumpMap", "_LUT", "_Tex", "_NoiseTex" })
+                {
+                    if (!m.HasProperty(prop)) continue;
+                    Texture t = m.GetTexture(prop);
+                    if (t != null && !owner.ContainsKey(t)) owner[t] = "material, shader " + shader;
+                }
+            }
+            yield return null;
+            var readable = tex.Where(x => Sizes.Readable(x.t)).ToList();
+            sb.AppendLine(string.Format("== Readable textures (RAM copy): {0:N0} MB in {1:N0} textures, by owner ==", readable.Sum(x => x.mb), readable.Count));
+            foreach (var g in readable.GroupBy(x => { string o; return owner.TryGetValue(x.t, out o) ? o : "no owner found"; })
+                                      .OrderByDescending(g => g.Sum(x => x.mb)).Take(25))
+                sb.AppendLine(string.Format("  {0,7:N0} MB  {1,6:N0}  {2}", g.Sum(x => x.mb), g.Count(), g.Key));
+            sb.AppendLine("Readable with no owner, by name (largest groups):");
+            foreach (var g in readable.Where(x => !owner.ContainsKey(x.t)).GroupBy(x => string.IsNullOrEmpty(x.t.name) ? "(unnamed) " + x.t.width + "x" + x.t.height : x.t.name)
+                                      .OrderByDescending(g => g.Sum(x => x.mb)).Take(15))
+                sb.AppendLine(string.Format("  {0,7:N0} MB  {1,6:N0}  '{2}'", g.Sum(x => x.mb), g.Count(), g.Key));
+            sb.AppendLine();
+            yield return null;
+
             // 3. Game data buffers: arrays held by the game's managers, directly or inside Array16/Array32/FastList.
             var arrays = new List<KeyValuePair<string, double>>();
             foreach (MonoBehaviour mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
