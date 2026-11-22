@@ -15,7 +15,7 @@ using Debug = UnityEngine.Debug;
 
 namespace ModProfiler
 {
-    public class Census : MonoBehaviour
+    public partial class Census : MonoBehaviour
     {
         const float Seconds = 20f;
 
@@ -37,7 +37,9 @@ namespace ModProfiler
                 t.ticks = 0; t.renders = 0; t.recording = true;
                 timers.Add(t);
             }
+            InstallUpdaterTimers();
             var frames = new List<float>();
+            var parts = new List<double[]>();   // per frame: update, late update, cameras (ms)
             var gcFrame = new List<bool>();
             int gc0 = GC.CollectionCount(0), gcPrev = gc0;
             long heapPrev = GC.GetTotalMemory(false), allocated = 0;
@@ -46,6 +48,9 @@ namespace ModProfiler
             {
                 yield return null;
                 frames.Add(Time.unscaledDeltaTime * 1000f);
+                double f = 1000.0 / Stopwatch.Frequency;
+                parts.Add(new[] { upd * f, late * f, cam * f });
+                upd = late = cam = 0;
                 int gc = GC.CollectionCount(0);
                 long heap = GC.GetTotalMemory(false);
                 if (gc == gcPrev && heap > heapPrev) allocated += heap - heapPrev;   // growth between collections ~ allocations
@@ -84,6 +89,16 @@ namespace ModProfiler
                 median, 2 * median, slow, slowWithGc));
             if (gcFrameTimes.Count > 0)
                 sb.AppendLine(string.Format("Frames with a collection: avg {0:N1} ms, worst {1:N1} ms", gcFrameTimes.Average(), gcFrameTimes.Max()));
+            sb.AppendLine();
+            sb.AppendLine("== Where the time goes: normal frames vs slow frames (ms, averages) ==");
+            sb.AppendLine("            frame   update  late-upd  cameras  other (engine, GPU/present wait)");
+            foreach (bool wantSlow in new[] { false, true })
+            {
+                var idx = Enumerable.Range(0, frames.Count).Where(i => (frames[i] > 2 * median) == wantSlow).ToList();
+                if (idx.Count == 0) continue;
+                double fr = idx.Average(i => frames[i]), u = idx.Average(i => parts[i][0]), l = idx.Average(i => parts[i][1]), c = idx.Average(i => parts[i][2]);
+                sb.AppendLine(string.Format("{0,-8} {1,7:N1} {2,8:N1} {3,9:N1} {4,8:N1} {5,8:N1}   ({6} frames)", wantSlow ? "slow" : "normal", fr, u, l, c, fr - u - l - c, idx.Count));
+            }
             sb.AppendLine("Slowest 10 frames (ms, GC?): " + string.Join(", ",
                 frames.Select((f, i) => new { f, gc = gcFrame[i] || (i + 1 < frames.Count && gcFrame[i + 1]) }).OrderByDescending(x => x.f).Take(10)
                       .Select(x => x.f.ToString("N0") + (x.gc ? " GC" : "")).ToArray()));
@@ -94,12 +109,35 @@ namespace ModProfiler
         }
     }
 
+    public partial class Census
+    {
+        // Per-frame totals, reset by the capture loop each frame.
+        public static long upd, late, cam;
+        static bool installed;
+
+        // FPS Booster's updater runs every game Update/LateUpdate; time it as two blocks. Main-thread only methods.
+        static void InstallUpdaterTimers()
+        {
+            if (installed) return;
+            installed = true;
+            Type t = HarmonyLib.AccessTools.TypeByName("BehaviourUpdater.Updater");
+            if (t == null) { Debug.Log("[ModProfiler] Census: BehaviourUpdater.Updater not found"); return; }
+            var h = new HarmonyLib.Harmony("modprofiler.census");
+            var pre = new HarmonyLib.HarmonyMethod(typeof(Census).GetMethod("Pre", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic));
+            h.Patch(HarmonyLib.AccessTools.Method(t, "Update", null, null), pre, new HarmonyLib.HarmonyMethod(typeof(Census).GetMethod("PostUpdate", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)), null, null);
+            h.Patch(HarmonyLib.AccessTools.Method(t, "LateUpdate", null, null), pre, new HarmonyLib.HarmonyMethod(typeof(Census).GetMethod("PostLate", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)), null, null);
+        }
+        static void Pre(out long __state) { __state = Stopwatch.GetTimestamp(); }
+        static void PostUpdate(long __state) { upd += Stopwatch.GetTimestamp() - __state; }
+        static void PostLate(long __state) { late += Stopwatch.GetTimestamp() - __state; }
+    }
+
     // Times one camera's culling + draw submission on the main thread.
     public class CameraTimer : MonoBehaviour
     {
         public long ticks; public int renders; public bool recording;
         long start;
         void OnPreCull() { start = Stopwatch.GetTimestamp(); }
-        void OnPostRender() { if (recording && start != 0) { ticks += Stopwatch.GetTimestamp() - start; renders++; } start = 0; }
+        void OnPostRender() { if (start != 0) { long dt = Stopwatch.GetTimestamp() - start; Census.cam += dt; if (recording) { ticks += dt; renders++; } } start = 0; }
     }
 }
