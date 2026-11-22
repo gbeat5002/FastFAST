@@ -4,12 +4,10 @@ using UnityEngine;
 
 namespace ModProfiler
 {
-    public class ProfilerMod : IUserMod
+    // Part of the FastFAST mod: developer tools, idle unless a trigger file (profile.flag, census.flag, ...) is used.
+    public static class ProfilerMod
     {
-        public string Name { get { return "Mod Profiler"; } }
-        public string Description { get { return "Ctrl+Shift+F (or profile.flag): times every mod's per-frame work for 20 s into profile.txt."; } }
-
-        public void OnEnabled()
+        public static void OnEnabled()
         {
             HarmonyHelper.DoOnHarmonyReady(LoadProfiler.Install);
             if (GameObject.Find("ModProfilerMenu") == null)

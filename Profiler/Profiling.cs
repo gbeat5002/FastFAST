@@ -92,7 +92,7 @@ namespace ModProfiler
         }
 
         static readonly string[] skip = { "Assembly-CSharp", "Assembly-CSharp-firstpass", "ColossalManaged", "ICities", "UnityEngine", "UnityEngine.UI",
-            "UnityEngine.Networking", "mscorlib", "ICSharpCode.SharpZipLib", "PopsApiWrapper", "EOSSDK", "OnDemandAssets", "ModProfiler",
+            "UnityEngine.Networking", "mscorlib", "ICSharpCode.SharpZipLib", "PopsApiWrapper", "EOSSDK", "OnDemandAssets", "ModProfiler", "FastFAST",
             "CitiesHarmony.Harmony", "CitiesHarmony.API", "CitiesHarmony", "0Harmony" };
 
         public static bool IsMod(string n)

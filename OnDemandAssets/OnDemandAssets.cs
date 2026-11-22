@@ -16,24 +16,22 @@ using Debug = UnityEngine.Debug;
 
 namespace OnDemandAssets
 {
-    public class Mod : IUserMod
+    // Part of the FastFAST mod: on-demand asset browser (Ctrl+Shift+L) and texture RAM trimming.
+    public static class Part
     {
-        public string Name { get { return "On-Demand Assets"; } }
-        public string Description { get { return "Ctrl+Shift+L: browse and load unloaded props/buildings while playing."; } }
-
-        public void OnSettingsUI(UIHelperBase helper)
+        public static void AddOptions(UIHelperBase helper)
         {
-            helper.AddGroup("RAM").AddCheckbox("Free RAM copies of tooltip and thumbnail images (takes effect next city load)",
+            helper.AddGroup("RAM (On-Demand Assets)").AddCheckbox("Free RAM copies of tooltip and thumbnail images (takes effect next city load)",
                 TextureTrim.TrimUiAtlases, on => TextureTrim.TrimUiAtlases = on);
         }
 
         // Enabled while a city is open (or hot-reloaded): attach without needing a reload.
-        public void OnEnabled()
+        public static void OnEnabled()
         {
             if (LoadingManager.exists && LoadingManager.instance.m_loadingComplete) Controller.Create();
         }
 
-        public void OnDisabled() { Controller.DestroyAll(); }
+        public static void OnDisabled() { Controller.DestroyAll(); }
     }
 
     public class Loading : LoadingExtensionBase

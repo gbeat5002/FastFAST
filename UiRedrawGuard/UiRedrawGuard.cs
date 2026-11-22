@@ -16,12 +16,10 @@ using UnityEngine;
 
 namespace UiRedrawGuard
 {
-    public class Mod : IUserMod
+    // Part of the FastFAST mod.
+    public static class Part
     {
-        public string Name { get { return "UI Redraw Guard"; } }
-        public string Description { get { return "Stops needless full-UI redraws every frame (Crossroads button, hidden hotel panel)."; } }
-
-        public void OnSettingsUI(UIHelperBase helper)
+        public static void AddOptions(UIHelperBase helper)
         {
             Settings.Reload();
             var g = helper.AddGroup("UI Redraw Guard");

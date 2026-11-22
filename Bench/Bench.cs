@@ -20,12 +20,6 @@ using UnityEngine;
 
 namespace Bench
 {
-    public class Mod : IUserMod
-    {
-        public string Name { get { return "Bench (benchmark tool)"; } }
-        public string Description { get { return "Repeatable benchmark: create Bench\\run.flag in the game data folder to start."; } }
-    }
-
     public class Loading : LoadingExtensionBase
     {
         public override void OnLevelLoaded(LoadMode mode)
