@@ -34,3 +34,28 @@ Tool: Mod Profiler's UI capture (`uiprofile.flag`, 10 s). It patches `UIComponen
 - The game's own per-frame invalidations (hotel-chain profit label, hidden industry and monument menu items) never dirtied the view: they're hidden, so they don't trigger a redraw.
 - The other 4 re-renders came from real changes (WatchIt2 panel icons, a Chirper message).
 - Expected saving if the button stops invalidating: at least the 1.8 ms re-render on most frames. UIView.LateUpdate measured ~9 ms in the frame profile, so part of the rest may also drop. Not yet measured.
+
+## RAM snapshot (2026-11-21 21:45, fresh Green Peaks city, 0 custom assets)
+Tool: Mod Profiler `memreport.flag` (process numbers read from outside, since Mono's `Process` reports 0 for the game).
+
+| What | Size |
+|---|---|
+| Process private (committed) | 20.9 GB |
+| Working set (actually in RAM) | 9.1 GB |
+| Managed heap (C#) | 3.4 GB |
+| Unity native allocations | 5.5 GB (5.8 reserved) |
+| Committed but not in RAM | ~11.8 GB |
+
+- **Most of the "20 GB" is committed, not resident.** Only 9 GB is really in RAM. The rest is reserved or paged out. The likely cause is that Mono's garbage collector never returns heap to Windows, so the peak during loading stays committed. It costs page-file space and commit charge, not physical RAM. Not yet proven.
+- **Textures are the biggest resident item:** 34,840 Texture2D, about 5.4 GB at GPU size, even with 0 custom assets loaded. 1,529 of 1,742 sampled textures are readable, which means Unity keeps an extra RAM copy: **~3 GB of RAM copies**. 11,470 textures are 109 px, which is asset-thumbnail size (466 MB). 535 are 2048 px (2.0 GB).
+- **Game data buffers: 0.5 GB** (largest: terrain detail arrays at 107 MB; trees raised to 1.8 M = 25 MB). Raised limits are not the RAM problem.
+- **Mods' own objects: 0.8 GB.** Adaptive Roads 233 MB (a lane array of 262,144), Lumina 169 MB (render textures), Surface Painter 89 MB, TM:PE 79 MB, Skyve injections 71 MB, AutoPatcher 59 MB.
+- Earlier crash: the first version of this snapshot read a pointer field by reflection and crashed the game; pointers are now skipped.
+
+## Next UI culprit (same session)
+With both guards on, the UI still re-renders every frame (514/514, 3.9 ms each). Now it's the game's `GeneratedScrollPanel.ShowSelectedIndex` re-selecting a button in the hidden Industries menu (512 of 514). Each guard so far uncovers the next hidden-panel invalidator.
+
+## Guard quick A/B (same session, 20 s each, same spot, profiler timers on)
+- Guards off: 26.0 ms average (38 FPS); slowest 1% 42.2 ms.
+- Guards on: 24.9 ms average (40 FPS); slowest 1% 76.8 ms (one hitch in a 20 s sample).
+- About 1 ms saved. The full ~4 ms re-render saving needs the redraw to stop entirely, so the next culprit has to be handled too.
