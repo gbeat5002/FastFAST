@@ -68,6 +68,7 @@ namespace ModProfiler
             var fp = host.AddComponent<FrameProfiler>();
             host.AddComponent<UiProfiler>();
             host.AddComponent<MemSnapshot>();
+            host.AddComponent<Census>();
             fp.StartCoroutine(LoadProfiler.Finish());
         }
 
