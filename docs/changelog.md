@@ -25,3 +25,9 @@ Result (verified in game, new Green Peaks city):
 - Follow-up (user request after seeing its error popup): Japanese Traffic Lights (810355214) also excluded. Cities that use its traffic lights will show default lights or missing props until it is re-enabled.
 - Kept by user choice: BOB (2197863850). Its "unable to load random template assets" popup on fresh maps is a warning only: LSM "load used assets" skips BOB's bundled template .crp files when a city doesn't use them. Cities that use BOB random trees/props load them.
 - FPS is not comparable to runs 1-2, which rendered an empty plane. Run 3 is the new baseline (baseline.md).
+
+## 2026-11-21: Phase 2, change 1: UI Redraw Guard (mod `UiRedrawGuard/`)
+- Crossroads guard: skips `ToggleButtonStyle.Apply` when its arguments match the last call for that button. Verified in game with the UI capture: Crossroads went from starting 531 of 535 UI re-renders to none.
+- Hotel guard: skips the game's `HotelChainPanel` per-frame update while the panel is hidden. It was the next re-render source once the Crossroads guard was on (566 of 590 frames). Installed; the re-render capture with it on has not been run yet.
+- Both default on, each with an options checkbox (`UiRedrawGuard.txt`). Nothing visible changes: the skipped calls re-applied identical state or refreshed a hidden panel.
+- FPS gain: **not measured yet.** Run 4 (both on, before the weather fix) is not comparable: random overcast weather darkened the frame. A guards-off run was stopped when the game closed. Bench now pins clear weather. Next measurement: a quick same-spot A/B (20 s off, 20 s on), not the full benchmark.
