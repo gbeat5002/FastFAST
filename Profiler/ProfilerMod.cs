@@ -38,7 +38,7 @@ namespace ModProfiler
                 || LoadingManager.instance.m_currentlyLoading || LoadingManager.instance.m_loadingComplete) return;
             string mapName = "Green Peaks";
             try { string s = System.IO.File.ReadAllText(flag).Trim(); if (s.Length > 1) mapName = s; System.IO.File.Delete(flag); } catch { }
-            try { StartCity(mapName); }
+            try { if (mapName.StartsWith("scenario:")) StartScenario(mapName.Substring(9).Trim()); else StartCity(mapName); }
             catch (System.Exception e) { ProfilerMod.Notify("newgame.flag: failed: " + e); }
         }
 
@@ -68,6 +68,41 @@ namespace ModProfiler
             }
             ProfilerMod.Notify("newgame.flag: map not found: " + mapName);
         }
+
+        // "scenario:<name>": a built-in scenario city (prebuilt town with roads and traffic), started like the
+        // New Scenario panel does. Matches the package name, asset name or scenario name.
+        static void StartScenario(string name)
+        {
+            foreach (ColossalFramework.Packaging.Package.Asset asset in ColossalFramework.Packaging.PackageManager.FilterAssets(new[] { UserAssetType.ScenarioMetaData }))
+            {
+                if (asset == null) continue;
+                ScenarioMetaData meta = asset.Instantiate<ScenarioMetaData>();
+                if (meta == null || meta.assetRef == null) continue;
+                bool match = asset.name == name || meta.scenarioName == name || (asset.package != null && asset.package.packageName == name);
+                if (!match) continue;
+                var ngs = new SimulationMetaData
+                {
+                    m_CityName = meta.cityName,
+                    m_gameInstanceIdentifier = System.Guid.NewGuid().ToString(),
+                    m_invertTraffic = meta.invertTraffic ? SimulationMetaData.MetaBool.True : SimulationMetaData.MetaBool.False,
+                    m_disableAchievements = SimulationMetaData.MetaBool.True,
+                    m_startingDateTime = System.DateTime.Now,
+                    m_currentDateTime = System.DateTime.Now,
+                    m_newGameAppVersion = ColossalFramework.IO.DataLocation.productVersion,
+                    m_updateMode = SimulationManager.UpdateMode.NewGameFromScenario,
+                    m_environment = meta.environment,
+                    m_ScenarioAsset = asset.fullName,
+                    m_ScenarioName = meta.scenarioName
+                };
+                ProfilerMod.Notify("newgame.flag: starting scenario " + name + " (" + asset.fullName + ")");
+                LoadingManager.instance.LoadLevel(meta.assetRef, "Game", "InGame", ngs, false);
+                return;
+            }
+            var names = new System.Collections.Generic.List<string>();
+            foreach (ColossalFramework.Packaging.Package.Asset a in ColossalFramework.Packaging.PackageManager.FilterAssets(new[] { UserAssetType.ScenarioMetaData }))
+                if (a != null) names.Add(a.name + " / " + (a.package != null ? a.package.packageName : "?"));
+            ProfilerMod.Notify("newgame.flag: scenario not found: " + name + ". Available: " + string.Join("; ", names.ToArray()));
+        }
     }
 
     public class Loading : LoadingExtensionBase
@@ -83,6 +118,7 @@ namespace ModProfiler
             host.AddComponent<MemSnapshot>();
             host.AddComponent<Census>();
             host.AddComponent<UiGhostTest>();
+            host.AddComponent<StressCity>();
             fp.StartCoroutine(LoadProfiler.Finish());
         }
 

@@ -72,3 +72,10 @@ Clean frame split (normal frames, 17.9 ms): update 2.9, late update (UI + render
 ## UI component census (2026-11-21 23:3x, fresh Green Peaks)
 28,828 UI components, 28,179 active, 867 visible. Largest groups: build-menu toolbar (TSBar) 8,863; options panel (all mods' settings pages) 6,188; full-screen container 5,036; Volumetric Clouds' settings panel 2,161; unlocking panel 1,361; Toggle It 311; Render It 266. Since the redraw guard, they no longer cost measurable frame time (skipping their updates changed nothing). Their remaining cost is RAM and load time, not FPS.
 Note: frame times differ between sessions (11.8 ms here vs ~15 ms in the previous session at the same default view), so only same-session A/Bs are reliable.
+
+## Built-in scenario city "Fix the Traffic" (2026-11-22 00:01, loaded via newgame.flag "scenario:Fix the Traffic")
+A real prebuilt town with roads and traffic, identical every load and not one of the user's saves. It replaces the stress generator, which hung the game twice (Windows AppHang reports 23:47 and 23:52; generator kept in Mod Profiler but unproven).
+- Right after load: a garbage-collection storm. The census got 4 frames in 20 s, with 32 collections at ~20 MB/s allocation on a 3.9 GB heap: the game is effectively frozen for ~20 s after loading. That census is unusable as a frame split.
+- Steady state a minute later (frame profile, timers on): **13.6 ms average (73 FPS), slowest 1% 18.6 ms**. Main thread pegged (busiest thread 99%); the GPU counter read 0 (sampler issue).
+- Split: game LateUpdate 4.3 ms (rendering prep 2.6: buildings 0.8, terrain 0.2, roads 0.2, props 0.06, vehicles 0.05, citizens 0.02; UI 1.2), game Update 2.5 ms (UI input 0.35, UI components 0.4), Lumina 1.3 ms, cameras ~2.9 ms.
+- Conclusion: in a small real town the cost structure matches the empty map. There's no single dominant sink yet. Trees, props, citizens and vehicles are all small at this size.
