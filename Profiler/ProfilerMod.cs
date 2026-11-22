@@ -24,6 +24,7 @@ namespace ModProfiler
             var host = new GameObject(HostName);
             var fp = host.AddComponent<FrameProfiler>();
             host.AddComponent<UiProfiler>();
+            host.AddComponent<MemSnapshot>();
             fp.StartCoroutine(LoadProfiler.Finish());
         }
 
