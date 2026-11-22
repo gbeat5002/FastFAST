@@ -78,6 +78,7 @@ namespace ModProfiler
                 for (Type cur = type; cur != null && cur != typeof(MonoBehaviour); cur = cur.BaseType)
                     foreach (FieldInfo f in cur.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                     {
+                        if (f.FieldType.IsPointer) continue;   // reading pointer fields crashes Mono natively
                         object v; try { v = f.GetValue(mb); } catch { continue; }
                         if (v == null) continue;
                         var arr = v as Array;
@@ -104,6 +105,8 @@ namespace ModProfiler
             var behaviours = Resources.FindObjectsOfTypeAll<MonoBehaviour>().Cast<Object>().Concat(Resources.FindObjectsOfTypeAll<ScriptableObject>().Cast<Object>()).ToList();
             foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => Timers.IsMod(a.GetName().Name)))
             {
+                // Breadcrumb: if a walk still crashes the game, this file names the mod being walked.
+                File.WriteAllText(Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "memsnapshot-walking.txt"), asm.GetName().Name);
                 tallies.Add(walker.Measure(asm, behaviours));
                 yield return null;
             }
@@ -211,6 +214,10 @@ namespace ModProfiler
             return a == "Assembly-CSharp" || a == "Assembly-CSharp-firstpass" || a == "ColossalManaged" || a == "ICities" || a.StartsWith("UnityEngine");
         }
 
+        // Reference fields only. Reading a pointer field (int*, void*) by reflection crashes Mono natively, and a
+        // try/catch can't stop it (the game crashed here once), so pointers and by-refs are never read.
+        static bool Walkable(Type t) { return !t.IsValueType && !t.IsPointer && !t.IsByRef; }
+
         public Tally Measure(Assembly asm, List<Object> behaviours)
         {
             var t = new Tally { mod = asm.GetName().Name };
@@ -222,7 +229,7 @@ namespace ModProfiler
                 try { statics = type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly); } catch { continue; }
                 foreach (FieldInfo f in statics)
                 {
-                    if (f.IsLiteral) continue;
+                    if (f.IsLiteral || !Walkable(f.FieldType)) continue;
                     object v; try { v = f.GetValue(null); } catch { continue; }
                     if (v != null) stack.Push(v);
                 }
@@ -254,14 +261,14 @@ namespace ModProfiler
                     double bytes = 16 + (double)arr.Length * sizes.Elem(et);
                     t.managed += bytes;
                     if (bytes > 8 * 1048576) t.big.Add(string.Format("{0:N0} MB {1}[{2:N0}]", bytes / 1048576.0, et.Name, arr.Length));
-                    if (!et.IsValueType) foreach (object e in arr) if (e != null) stack.Push(e);
+                    if (Walkable(et)) foreach (object e in arr) if (e != null) stack.Push(e);
                     continue;
                 }
                 t.managed += sizes.Obj(type);
                 for (Type cur = type; cur != null && cur != typeof(object); cur = cur.BaseType)
                     foreach (FieldInfo f in sizes.Fields(cur))
                     {
-                        if (f.FieldType.IsValueType) continue;
+                        if (!Walkable(f.FieldType)) continue;
                         object v; try { v = f.GetValue(o); } catch { continue; }
                         if (v != null) stack.Push(v);
                     }
