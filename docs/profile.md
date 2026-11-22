@@ -68,3 +68,7 @@ With both guards on, the UI still re-renders every frame (514/514, 3.9 ms each).
 **Correction (23:00):** the "6 hitches per second" above was a measurement artifact. That census overlapped with Windows going to the lock screen; CS1 freezes when unfocused, and those frozen frames counted as hitches. A clean re-run (22:58) had 8 slow frames out of 1,008: one-off spikes after load (180-900 ms) and one 286 ms garbage collection.
 
 Clean frame split (normal frames, 17.9 ms): update 2.9, late update (UI + rendering prep) 7.1, cameras 2.7, other (engine, GPU/present wait) 5.2.
+
+## UI component census (2026-11-21 23:3x, fresh Green Peaks)
+28,828 UI components, 28,179 active, 867 visible. Largest groups: build-menu toolbar (TSBar) 8,863; options panel (all mods' settings pages) 6,188; full-screen container 5,036; Volumetric Clouds' settings panel 2,161; unlocking panel 1,361; Toggle It 311; Render It 266. Since the redraw guard, they no longer cost measurable frame time (skipping their updates changed nothing). Their remaining cost is RAM and load time, not FPS.
+Note: frame times differ between sessions (11.8 ms here vs ~15 ms in the previous session at the same default view), so only same-session A/Bs are reliable.

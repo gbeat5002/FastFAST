@@ -103,6 +103,21 @@ namespace ModProfiler
                 frames.Select((f, i) => new { f, gc = gcFrame[i] || (i + 1 < frames.Count && gcFrame[i + 1]) }).OrderByDescending(x => x.f).Take(10)
                       .Select(x => x.f.ToString("N0") + (x.gc ? " GC" : "")).ToArray()));
 
+            // UI components: how many exist, how many run per-frame updates (active), how many are visible,
+            // grouped by top-level panel (the child of the UIView root), which usually names the owning mod.
+            var comps = Resources.FindObjectsOfTypeAll<ColossalFramework.UI.UIComponent>().Where(c => c != null && c.gameObject.scene.IsValid()).ToList();
+            sb.AppendLine();
+            sb.AppendLine(string.Format("== UI components: {0:N0} total, {1:N0} active (updated every frame), {2:N0} visible ==",
+                comps.Count, comps.Count(c => c.gameObject.activeInHierarchy), comps.Count(c => c.isVisible)));
+            sb.AppendLine("   total  active  visible  top-level panel (owner type)");
+            foreach (var g in comps.GroupBy(c => { Transform t = c.transform; while (t.parent != null && t.parent.parent != null) t = t.parent; return t; })
+                                   .OrderByDescending(g => g.Count()).Take(25))
+            {
+                var top = g.Key.GetComponent<ColossalFramework.UI.UIComponent>();
+                string owner = top != null ? top.GetType().Assembly.GetName().Name + ":" + top.GetType().Name : "?";
+                sb.AppendLine(string.Format("{0,8:N0} {1,7:N0} {2,8:N0}  {3} ({4})", g.Count(), g.Count(c => c.gameObject.activeInHierarchy), g.Count(c => c.isVisible), g.Key.name, owner));
+            }
+
             string path = Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "census.txt");
             File.WriteAllText(path, sb.ToString());
             Debug.Log("[ModProfiler] Census written: " + path);
