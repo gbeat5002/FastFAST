@@ -39,3 +39,11 @@ Result (verified in game, new Green Peaks city):
 - Checks: no exceptions in the log after the trim or after opening the Roads menu. Build-menu thumbnails display normally. Visuals unchanged by design (the GPU copy is what's drawn).
 - Not done: the other ~2 GB of RAM copies (Procedural Objects' sidewalk texture pack ~0.6 GB, ~24,000 small unattributed images). They're riskier, because their owners may read pixels later.
 - Also: excluded the second Japanese Traffic Lights mod (809633246), which showed the same error popup as 810355214. The log now has zero mod exceptions on a fresh city.
+
+## 2026-11-21: Phase 2, change 3: UI Redraw Guard, general guard for hidden UI elements
+- What: a prefix on `UIComponent.Invalidate`. When the component is hidden (itself or a parent), it keeps the component's own "needs rebuild" flag but doesn't make the whole UI re-render. Invalidations during a visibility change always pass, so hiding a panel still clears it from the screen. Option: UI Redraw Guard settings → "Hidden UI elements never force a full UI redraw" (`hidden=on/off` in `UiRedrawGuard.txt`). This supersedes the one-off hotel-panel guard (kept, harmless).
+- UI re-renders: **2 of 660 frames**, down from every frame (the game's hidden Industries menu was the last per-frame culprit).
+- Same-session A/B (fresh Green Peaks, 20 s each, same spot): guard on **15.3 ms (65 FPS)** → off **18.0 ms (56 FPS)** → on again **14.9 ms (67 FPS)**. Late update (UI + render prep) 4.4-6.0 ms with it on vs 10.1 ms off. About **3 ms per frame saved, ~+17% FPS**.
+- Checks: no exceptions in the log. Ghost-panel test (Mod Profiler `uitest.flag`): hiding the bottom info bar removes it from the screen, and re-showing it restores the image exactly (bottom-strip difference 0.0).
+- Not checked: opening and closing menus by hand (clicks can't reach the game while Folio/Raycast take focus).
+- Also new: Mod Profiler's `newgame.flag` now starts a Green Peaks city straight through `LoadingManager.LoadLevel` (no clicks); `tools/fresh-city.ps1` uses it.

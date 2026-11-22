@@ -23,8 +23,9 @@ namespace ModProfiler
         public static void Notify(string msg) { Debug.Log("[ModProfiler] " + msg); }
     }
 
-    // Test automation: "newgame.flag" in the data folder starts a new game on the map the New Game panel selects
-    // by default (Green Peaks here), exactly as clicking New Game then Start. Only acts on the main menu.
+    // Test automation: "newgame.flag" in the data folder starts a new city on the stock map named in the flag
+    // (default "Green Peaks") straight through LoadingManager, the call the New Game panel ends in. No UI involved,
+    // so it works when mouse clicks don't reach the game. Only acts on the main menu.
     public class NewGameTrigger : MonoBehaviour
     {
         void Update()
@@ -35,25 +36,37 @@ namespace ModProfiler
             // The main menu is loaded additively (the active scene stays "Startup"), so check that it's loaded, not active.
             if (!UnityEngine.SceneManagement.SceneManager.GetSceneByName("MainMenu").isLoaded
                 || LoadingManager.instance.m_currentlyLoading || LoadingManager.instance.m_loadingComplete) return;
-            if (!starting) StartCoroutine(Start2(flag));
+            string mapName = "Green Peaks";
+            try { string s = System.IO.File.ReadAllText(flag).Trim(); if (s.Length > 1) mapName = s; System.IO.File.Delete(flag); } catch { }
+            try { StartCity(mapName); }
+            catch (System.Exception e) { ProfilerMod.Notify("newgame.flag: failed: " + e); }
         }
 
-        bool starting;
-
-        // The flag is removed only once the game is actually started, so a menu that isn't ready yet gets retried.
-        System.Collections.IEnumerator Start2(string flag)
+        static void StartCity(string mapName)
         {
-            starting = true;
-            var panel = ColossalFramework.UI.UIView.library.Get<NewGamePanel>("NewGamePanel");
-            if (panel == null || !panel.component.isVisible)   // don't stack a second modal on a retry
-                panel = ColossalFramework.UI.UIView.library.ShowModal<NewGamePanel>("NewGamePanel");
-            for (int i = 0; i < 120 && (panel == null || !panel.IsValid()); i++) yield return null;   // map list fills in over a few frames
-            starting = false;
-            if (panel == null || !panel.IsValid()) { ProfilerMod.Notify("newgame.flag: New Game panel not ready, retrying"); yield break; }
-            try { System.IO.File.Delete(flag); } catch { }
-            ProfilerMod.Notify("newgame.flag: starting a new game");
-            typeof(NewGamePanel).GetMethod("OnStartNewGame", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)
-                .Invoke(panel, null);
+            foreach (ColossalFramework.Packaging.Package.Asset asset in ColossalFramework.Packaging.PackageManager.FilterAssets(new[] { UserAssetType.MapMetaData }))
+            {
+                if (asset == null || !asset.isEnabled) continue;
+                MapMetaData meta = asset.Instantiate<MapMetaData>();
+                if (meta == null || meta.mapName != mapName || meta.assetRef == null) continue;
+                var ngs = new SimulationMetaData
+                {
+                    m_CityName = "Bench",
+                    m_gameInstanceIdentifier = System.Guid.NewGuid().ToString(),
+                    m_invertTraffic = SimulationMetaData.MetaBool.False,
+                    m_disableAchievements = SimulationMetaData.MetaBool.True,
+                    m_startingDateTime = System.DateTime.Now,
+                    m_currentDateTime = System.DateTime.Now,
+                    m_newGameAppVersion = ColossalFramework.IO.DataLocation.productVersion,
+                    m_updateMode = SimulationManager.UpdateMode.NewGameFromMap,
+                    m_environment = meta.environment,
+                    m_MapName = meta.mapName
+                };
+                ProfilerMod.Notify("newgame.flag: starting a new city on " + mapName);
+                LoadingManager.instance.LoadLevel(meta.assetRef, "Game", "InGame", ngs, false);
+                return;
+            }
+            ProfilerMod.Notify("newgame.flag: map not found: " + mapName);
         }
     }
 
@@ -69,6 +82,7 @@ namespace ModProfiler
             host.AddComponent<UiProfiler>();
             host.AddComponent<MemSnapshot>();
             host.AddComponent<Census>();
+            host.AddComponent<UiGhostTest>();
             fp.StartCoroutine(LoadProfiler.Finish());
         }
 

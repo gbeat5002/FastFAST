@@ -27,12 +27,13 @@ namespace UiRedrawGuard
             var g = helper.AddGroup("UI Redraw Guard");
             g.AddCheckbox("Skip unchanged Crossroads button restyles", Settings.Crossroads, on => { Settings.Crossroads = on; Settings.Save(); });
             g.AddCheckbox("Don't refresh the hotel-chain panel while it is hidden", Settings.Hotel, on => { Settings.Hotel = on; Settings.Save(); });
+            g.AddCheckbox("Hidden UI elements never force a full UI redraw", Settings.Hidden, on => { Settings.Hidden = on; Settings.Save(); });
         }
     }
 
     public static class Settings
     {
-        public static bool Crossroads = true, Hotel = true;
+        public static bool Crossroads = true, Hotel = true, Hidden = true;
         static float nextCheck;
         static string FilePath { get { return Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "UiRedrawGuard.txt"); } }
 
@@ -52,7 +53,7 @@ namespace UiRedrawGuard
                 string s = File.ReadAllText(FilePath);
                 bool c = !s.Contains("crossroads=off"), h = !s.Contains("hotel=off");
                 if (c != Crossroads) Guard.Forget();
-                Crossroads = c; Hotel = h;
+                Crossroads = c; Hotel = h; Hidden = !s.Contains("hidden=off");
             }
             catch { }
         }
@@ -60,7 +61,7 @@ namespace UiRedrawGuard
         public static void Save()
         {
             Guard.Forget();
-            try { File.WriteAllText(FilePath, "crossroads=" + (Crossroads ? "on" : "off") + "\nhotel=" + (Hotel ? "on" : "off") + "\n"); } catch { }
+            try { File.WriteAllText(FilePath, "crossroads=" + (Crossroads ? "on" : "off") + "\nhotel=" + (Hotel ? "on" : "off") + "\nhidden=" + (Hidden ? "on" : "off") + "\n"); } catch { }
         }
     }
 
@@ -84,6 +85,13 @@ namespace UiRedrawGuard
             // FPS Booster renames MonoBehaviour.Update to FpsBoosterUpdate at runtime; patch whichever exists.
             var hotel = AccessTools.Method(typeof(HotelChainPanel), "FpsBoosterUpdate", null, null) ?? AccessTools.Method(typeof(HotelChainPanel), "Update", null, null);
             if (hotel != null) { h.Patch(hotel, new HarmonyMethod(typeof(Guard).GetMethod("HotelPrefix")), null, null, null); Debug.Log("[UiRedrawGuard] Guarding HotelChainPanel." + hotel.Name); }
+
+            // General guard: hidden components don't dirty the view. Visibility changes always pass (a hiding panel
+            // invalidates itself after it already counts as hidden; skipping that would leave it drawn on screen).
+            h.Patch(AccessTools.Method(typeof(UIComponent), "Invalidate", Type.EmptyTypes, null), new HarmonyMethod(typeof(Guard).GetMethod("InvalidatePrefix")), null, null, null);
+            h.Patch(AccessTools.Method(typeof(UIComponent), "OnVisibilityChanged", null, null), new HarmonyMethod(typeof(Guard).GetMethod("VisibilityPrefix")),
+                new HarmonyMethod(typeof(Guard).GetMethod("VisibilityPostfix")), null, null);
+            Debug.Log("[UiRedrawGuard] Guarding UIComponent.Invalidate for hidden components");
         }
     }
 
@@ -106,6 +114,20 @@ namespace UiRedrawGuard
             last[button] = key;
             return true;
         }
+
+        // Hidden component: keep its own "needs rebuild" flag (so it draws fresh when shown) but don't make the whole
+        // UI re-render now. Main thread in practice; visibilityDepth is only touched there.
+        static int visibilityDepth;
+        static readonly System.Reflection.FieldInfo componentInvalidated = AccessTools.Field(typeof(UIComponent), "m_IsComponentInvalidated");
+
+        public static bool InvalidatePrefix(UIComponent __instance)
+        {
+            if (!Settings.Hidden || visibilityDepth > 0 || __instance == null || __instance.isVisible || componentInvalidated == null) return true;
+            componentInvalidated.SetValue(__instance, true);
+            return false;
+        }
+        public static void VisibilityPrefix() { visibilityDepth++; }
+        public static void VisibilityPostfix() { if (visibilityDepth > 0) visibilityDepth--; }
 
         // Hidden panel: nothing on screen to refresh. It refreshes on becoming visible (OnBecameVisible) and next frame.
         public static bool HotelPrefix(HotelChainPanel __instance)

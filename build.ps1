@@ -13,7 +13,7 @@ $build = @(
     @{ name = "Bench"; files = "Bench.cs"; installTo = "Bench" },
     @{ name = "UiRedrawGuard"; files = "UiRedrawGuard.cs"; installTo = "UiRedrawGuard"
        refs = "$PSScriptRoot\lib\CitiesHarmony.API.dll", "$harmony\CitiesHarmony.Harmony.dll"; copy = "$PSScriptRoot\lib\CitiesHarmony.API.dll" },
-    @{ name = "Profiler"; files = "Profiling.cs", "ProfilerMod.cs", "MemSnapshot.cs", "Census.cs"; installTo = "ModProfiler"; dll = "ModProfiler"
+    @{ name = "Profiler"; files = "Profiling.cs", "ProfilerMod.cs", "MemSnapshot.cs", "Census.cs", "UiGhostTest.cs"; installTo = "ModProfiler"; dll = "ModProfiler"
        refs = "$PSScriptRoot\lib\CitiesHarmony.API.dll", "$harmony\CitiesHarmony.Harmony.dll", "System.Core.dll"; copy = "$PSScriptRoot\lib\CitiesHarmony.API.dll" }
 )
 

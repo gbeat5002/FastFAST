@@ -64,3 +64,7 @@ With both guards on, the UI still re-renders every frame (514/514, 3.9 ms each).
 - **Cameras are not the problem.** Three render each frame: main camera 3.05 ms (culling + draw submission), Lumina's resolution camera 0.88 ms, UI 0.56 ms. No extra hidden passes.
 - **Garbage collection is not the stutter.** 0 collections in 20 s; allocation ~3 MB/s; managed heap 3.4 GB.
 - **The real lead: frequent hitches.** 120 of 757 frames (16%) took more than 2x the 18.8 ms median, 73-192 ms each, about 6 per second, none with a GC. This costs far more than the UI's 9 ms. A capture that splits hitch frames into update / late update / cameras / other is built (Census.cs) but has not run yet: the no-click new-game trigger fails ("New Game panel not ready") and the session ended at the lock screen.
+
+**Correction (23:00):** the "6 hitches per second" above was a measurement artifact. That census overlapped with Windows going to the lock screen; CS1 freezes when unfocused, and those frozen frames counted as hitches. A clean re-run (22:58) had 8 slow frames out of 1,008: one-off spikes after load (180-900 ms) and one 286 ms garbage collection.
+
+Clean frame split (normal frames, 17.9 ms): update 2.9, late update (UI + rendering prep) 7.1, cameras 2.7, other (engine, GPU/present wait) 5.2.
