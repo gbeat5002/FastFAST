@@ -11,6 +11,8 @@ $base = "Assembly-CSharp", "ColossalManaged", "ICities", "UnityEngine" | ForEach
 $build = @(
     @{ name = "OnDemandAssets"; files = "OnDemandAssets.cs", "TextureTrim.cs"; installTo = "OnDemandTest" },   # folder name kept: it is the entry already enabled in Content Manager
     @{ name = "Bench"; files = "Bench.cs"; installTo = "Bench" },
+    @{ name = "UiRedrawGuard"; files = "UiRedrawGuard.cs"; installTo = "UiRedrawGuard"
+       refs = "$PSScriptRoot\lib\CitiesHarmony.API.dll", "$harmony\CitiesHarmony.Harmony.dll"; copy = "$PSScriptRoot\lib\CitiesHarmony.API.dll" },
     @{ name = "Profiler"; files = "Profiling.cs", "ProfilerMod.cs"; installTo = "ModProfiler"; dll = "ModProfiler"
        refs = "$PSScriptRoot\lib\CitiesHarmony.API.dll", "$harmony\CitiesHarmony.Harmony.dll", "System.Core.dll"; copy = "$PSScriptRoot\lib\CitiesHarmony.API.dll" }
 )

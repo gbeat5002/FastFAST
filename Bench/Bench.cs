@@ -122,6 +122,7 @@ namespace Bench
                     UIView.Show(false);
                     yield return null; yield return null;
                     Application.CaptureScreenshot(Path.Combine(dir, "shot_" + p.name + "_" + take + ".png"));
+                    File.AppendAllText(Path.Combine(dir, "meta.txt"), "shot " + p.name + " " + take + ": " + SceneState() + Environment.NewLine);
                     yield return new WaitForEndOfFrame();
                     yield return null;
                     UIView.Show(true);
@@ -146,6 +147,7 @@ namespace Bench
                     Vector3 camStart = Camera.main.transform.position; Quaternion rotStart = Camera.main.transform.rotation;
                     string startUtc = DateTime.UtcNow.ToString("o");
                     Log(string.Format("segment {0} start: {1} {2}", seg, p.name, paused ? "paused" : "3x"));
+                    File.AppendAllText(Path.Combine(dir, "meta.txt"), "segment " + seg + " start: " + SceneState() + Environment.NewLine);
                     var times = new List<float>();
                     float until = Time.realtimeSinceStartup + SegmentSeconds;
                     while (Time.realtimeSinceStartup < until)
@@ -210,6 +212,20 @@ namespace Bench
             sim.m_dayTimeOffsetFrames = (target - sim.m_currentFrameIndex) & (SimulationManager.DAYTIME_FRAMES - 1);
             sim.m_dayTimeFrame = target;
             sim.m_currentDayTimeHour = hour;
+            // Weather is random per new game (overcast darkens the frame and turns on headlights): pin it clear.
+            WeatherManager w = WeatherManager.instance;
+            w.m_currentRain = w.m_targetRain = 0f;
+            w.m_currentFog = w.m_targetFog = 0f;
+            w.m_currentCloud = w.m_targetCloud = 0f;
+            w.m_currentNorthernLights = w.m_targetNorthernLights = 0f;
+            w.m_currentRainbow = w.m_targetRainbow = 0f;
+        }
+
+        static string SceneState()
+        {
+            SimulationManager sim = SimulationManager.instance; WeatherManager w = WeatherManager.instance;
+            return string.Format(CultureInfo.InvariantCulture, "hour {0:F2}, rain {1:F2}, fog {2:F2}, cloud {3:F2}",
+                sim.m_currentDayTimeHour, w.m_currentRain, w.m_currentFog, w.m_currentCloud);
         }
 
         static void SetCamera(CamPos p)
